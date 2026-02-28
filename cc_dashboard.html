@@ -643,9 +643,10 @@ let activeTab    = 'jitter';
 let segCache     = {};
 
 // Session data
-let sessionStart = null;
+let sessionStart    = null;
 let sessionReadings = 0;
-let sessionBad   = 0;
+let sessionBad      = 0;
+let sessionCells    = new Set(); // cells visited in THIS session only
 
 // Chart RAF
 let rafPending   = false;
@@ -754,10 +755,11 @@ function requestLocation() {
 
 function startTracking() {
   if (tracking) return;
-  tracking     = true;
-  sessionStart = Date.now();
+  tracking        = true;
+  sessionStart    = Date.now();
   sessionReadings = 0;
-  sessionBad   = 0;
+  sessionBad      = 0;
+  sessionCells    = new Set();
 
   watchId = navigator.geolocation.watchPosition(
     onPosition,
@@ -838,6 +840,7 @@ async function doProbe() {
 
   // Record to current GPS segment
   if (currentCell && tracking) {
+    sessionCells.add(currentCell);
     await recordToSegment(currentCell, probeJitter, probeRtt, probeLoss);
     sessionReadings++;
     if (probeClass === 'bad') sessionBad++;
@@ -1214,7 +1217,7 @@ async function saveSession() {
   await dbPut(STORE_SESS, {
     startTime: sessionStart,
     endTime:   Date.now(),
-    segments:  Object.keys(segCache).length,
+    segments:  sessionCells.size,   // only cells visited THIS session
     readings:  sessionReadings,
     badPct:    sessionReadings > 0 ? sessionBad / sessionReadings : 0,
   });
