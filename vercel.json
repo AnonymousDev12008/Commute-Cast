@@ -1,9 +1,9 @@
 {
   "rewrites": [
-    { "source": "/signal",          "destination": "/api/signal"   },
-    { "source": "/signal/history",  "destination": "/api/history"  },
-    { "source": "/signal/segments", "destination": "/api/segments" },
-    { "source": "/status",          "destination": "/api/status"   },
+    { "source": "/signal",          "destination": "/signal"   },
+    { "source": "/signal/history",  "destination": "/history"  },
+    { "source": "/signal/segments", "destination": "/segments" },
+    { "source": "/status",          "destination": "/status"   },
     { "source": "/",                "destination": "/cc_dashboard.html" }
   ]
 }
