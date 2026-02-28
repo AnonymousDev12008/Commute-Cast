@@ -1,0 +1,7 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/cc_dashboard.html" }
+  ]
+}
+```
+
