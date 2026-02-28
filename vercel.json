@@ -4,6 +4,6 @@
     { "source": "/signal/history",  "destination": "/api/history"  },
     { "source": "/signal/segments", "destination": "/api/segments" },
     { "source": "/status",          "destination": "/api/status"   },
-    { "source": "/",                "destination": "/index.html"   }
+    { "source": "/",                "destination": "/cc_dashboard.html" }
   ]
 }
