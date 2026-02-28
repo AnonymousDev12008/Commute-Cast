@@ -1,0 +1,1420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CommuteCast</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+/* ── Reset & root ───────────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0;}
+html{height:100%;}
+
+:root{
+  --ink:#0b0d0f;
+  --ink2:#111418;
+  --ink3:#181d22;
+  --border:#1e252d;
+  --border2:#252d38;
+  --txt:#c8d0da;
+  --dim:#4a5568;
+  --muted:#2d3748;
+  --cream:#e8edf3;
+
+  --signal-good:#00e5a0;
+  --signal-ok:#f5a623;
+  --signal-bad:#ff4d6d;
+  --signal-unknown:#4a5568;
+
+  --accent:#00e5a0;
+  --accent2:#00b87a;
+
+  --ff-display:'Syne',sans-serif;
+  --ff-mono:'JetBrains Mono',monospace;
+  --ff-serif:'Instrument Serif',serif;
+
+  --r6:6px;--r10:10px;--r14:14px;--r20:20px;
+}
+
+body{
+  background:var(--ink);
+  color:var(--txt);
+  font-family:var(--ff-display);
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* Subtle grain overlay */
+body::before{
+  content:'';
+  position:fixed;inset:0;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events:none;z-index:999;opacity:.4;
+}
+
+/* ── Layout ─────────────────────────────────────────────────── */
+.shell{
+  display:grid;
+  grid-template-rows:auto 1fr;
+  min-height:100vh;
+}
+
+/* ── Top bar ────────────────────────────────────────────────── */
+.topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:16px 28px;
+  border-bottom:1px solid var(--border);
+  background:rgba(11,13,15,.92);
+  backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:100;
+}
+
+.brand{display:flex;align-items:center;gap:12px;}
+.brand-mark{
+  width:36px;height:36px;border-radius:8px;
+  background:var(--accent);
+  display:grid;place-items:center;
+  font-size:.9rem;font-weight:800;color:#000;
+  font-family:var(--ff-display);letter-spacing:-1px;
+  flex-shrink:0;
+}
+.brand-name{
+  font-family:var(--ff-display);
+  font-size:1.1rem;font-weight:700;
+  color:var(--cream);letter-spacing:-.5px;
+}
+.brand-sub{
+  font-family:var(--ff-mono);
+  font-size:.48rem;letter-spacing:3px;
+  color:var(--dim);margin-top:2px;
+}
+
+.topbar-right{display:flex;align-items:center;gap:12px;}
+
+/* Location status pill */
+.loc-pill{
+  display:flex;align-items:center;gap:7px;
+  padding:6px 14px;border-radius:99px;
+  border:1px solid var(--border2);
+  font-family:var(--ff-mono);font-size:.5rem;letter-spacing:2px;
+  color:var(--dim);transition:all .3s;cursor:pointer;
+}
+.loc-pill.active{
+  color:var(--accent);
+  border-color:rgba(0,229,160,.3);
+  background:rgba(0,229,160,.06);
+}
+.loc-pill.denied{color:var(--signal-bad);border-color:rgba(255,77,109,.3);}
+.loc-dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex-shrink:0;}
+.loc-pill.active .loc-dot{animation:blink 1.6s ease-in-out infinite;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+.notif-btn{
+  width:36px;height:36px;border-radius:8px;border:1px solid var(--border2);
+  background:transparent;color:var(--dim);cursor:pointer;
+  display:grid;place-items:center;font-size:.85rem;transition:all .2s;
+}
+.notif-btn:hover{border-color:var(--border2);color:var(--txt);}
+.notif-btn.on{color:var(--accent);border-color:rgba(0,229,160,.3);background:rgba(0,229,160,.06);}
+
+/* ── Main content grid ──────────────────────────────────────── */
+.main{
+  display:grid;
+  grid-template-columns:320px 1fr;
+  grid-template-rows:auto 1fr;
+  gap:0;
+  min-height:calc(100vh - 69px);
+}
+
+/* ── Left sidebar ───────────────────────────────────────────── */
+.sidebar{
+  border-right:1px solid var(--border);
+  display:flex;flex-direction:column;
+  overflow-y:auto;
+}
+
+/* ── Live signal gauge ──────────────────────────────────────── */
+.gauge-section{
+  padding:28px 24px 20px;
+  border-bottom:1px solid var(--border);
+}
+.gauge-label{
+  font-family:var(--ff-mono);font-size:.48rem;letter-spacing:3px;
+  color:var(--dim);margin-bottom:20px;
+}
+.gauge-wrap{
+  display:flex;align-items:center;gap:20px;
+}
+.gauge-ring-wrap{position:relative;flex-shrink:0;}
+.gauge-ring{width:90px;height:90px;}
+.gauge-ring circle{
+  fill:none;stroke-width:6;stroke-linecap:round;
+  transform-origin:center;transform:rotate(-90deg);
+  transition:stroke-dashoffset 1s cubic-bezier(.4,0,.2,1), stroke .5s;
+}
+.gauge-track{stroke:var(--border2);}
+.gauge-fill{stroke:var(--accent);stroke-dasharray:220;stroke-dashoffset:220;}
+.gauge-center{
+  position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+}
+.gauge-val{
+  font-family:var(--ff-display);font-size:1.4rem;font-weight:700;
+  color:var(--cream);line-height:1;
+}
+.gauge-unit{font-family:var(--ff-mono);font-size:.44rem;color:var(--dim);letter-spacing:2px;margin-top:2px;}
+
+.gauge-stats{flex:1;}
+.g-stat{margin-bottom:12px;}
+.g-stat:last-child{margin-bottom:0;}
+.g-stat-label{font-family:var(--ff-mono);font-size:.44rem;color:var(--dim);letter-spacing:2px;margin-bottom:3px;}
+.g-stat-val{
+  font-family:var(--ff-display);font-size:.95rem;font-weight:600;color:var(--cream);
+  display:flex;align-items:center;gap:6px;
+}
+.g-bar{height:2px;background:var(--border2);border-radius:1px;margin-top:4px;overflow:hidden;}
+.g-bar-fill{height:100%;border-radius:1px;background:var(--accent);width:0;transition:width .8s cubic-bezier(.4,0,.2,1);}
+
+/* Signal quality badge */
+.sig-badge{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 10px;border-radius:99px;
+  font-family:var(--ff-mono);font-size:.46rem;letter-spacing:2px;
+  transition:all .4s;margin-top:14px;
+}
+.sig-badge.good{color:var(--signal-good);background:rgba(0,229,160,.1);border:1px solid rgba(0,229,160,.25);}
+.sig-badge.ok{color:var(--signal-ok);background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.25);}
+.sig-badge.bad{color:var(--signal-bad);background:rgba(255,77,109,.1);border:1px solid rgba(255,77,109,.25);}
+.sig-badge.unknown{color:var(--dim);background:transparent;border:1px solid var(--border2);}
+
+/* ── Alert panel ────────────────────────────────────────────── */
+.alert-section{
+  padding:20px 24px;
+  border-bottom:1px solid var(--border);
+}
+.alert-section-label{
+  font-family:var(--ff-mono);font-size:.48rem;letter-spacing:3px;
+  color:var(--dim);margin-bottom:14px;
+}
+.alert-card{
+  background:var(--ink2);
+  border:1px solid var(--border);
+  border-radius:var(--r10);
+  padding:14px;
+  display:flex;gap:12px;
+  align-items:flex-start;
+  transition:border-color .3s;
+}
+.alert-card.warn{border-color:rgba(245,166,35,.3);background:rgba(245,166,35,.04);}
+.alert-card.danger{border-color:rgba(255,77,109,.3);background:rgba(255,77,109,.04);}
+.alert-card.info{border-color:rgba(0,229,160,.25);background:rgba(0,229,160,.04);}
+.alert-icon{font-size:1.1rem;flex-shrink:0;margin-top:1px;}
+.alert-body{}
+.alert-title{font-size:.8rem;font-weight:600;color:var(--cream);margin-bottom:3px;line-height:1.3;}
+.alert-desc{font-family:var(--ff-mono);font-size:.5rem;color:var(--dim);line-height:1.6;}
+.alert-time{font-family:var(--ff-mono);font-size:.44rem;color:var(--muted);margin-top:5px;}
+.no-alerts{
+  font-family:var(--ff-mono);font-size:.52rem;color:var(--muted);
+  text-align:center;padding:20px 0;
+}
+
+/* ── Stats row ──────────────────────────────────────────────── */
+.stats-section{
+  padding:20px 24px;
+  border-bottom:1px solid var(--border);
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;
+}
+.stat-box{
+  background:var(--ink2);border:1px solid var(--border);
+  border-radius:var(--r10);padding:14px;
+}
+.stat-box-val{
+  font-family:var(--ff-display);font-size:1.5rem;font-weight:700;
+  color:var(--cream);line-height:1;margin-bottom:4px;
+}
+.stat-box-label{font-family:var(--ff-mono);font-size:.44rem;color:var(--dim);letter-spacing:2px;}
+
+/* ── History list ───────────────────────────────────────────── */
+.history-section{
+  padding:20px 24px;
+  flex:1;
+}
+.history-label{
+  font-family:var(--ff-mono);font-size:.48rem;letter-spacing:3px;
+  color:var(--dim);margin-bottom:14px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.clear-btn{
+  font-family:var(--ff-mono);font-size:.44rem;letter-spacing:1px;
+  color:var(--muted);background:none;border:none;cursor:pointer;
+  padding:2px 6px;border-radius:4px;transition:color .2s;
+}
+.clear-btn:hover{color:var(--signal-bad);}
+.history-item{
+  display:flex;align-items:center;gap:10px;
+  padding:10px 0;border-bottom:1px solid var(--border);
+  cursor:pointer;transition:opacity .2s;
+}
+.history-item:last-child{border-bottom:none;}
+.history-item:hover{opacity:.8;}
+.h-dot{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;
+}
+.h-dot.good{background:var(--signal-good);}
+.h-dot.ok{background:var(--signal-ok);}
+.h-dot.bad{background:var(--signal-bad);}
+.h-body{flex:1;min-width:0;}
+.h-title{font-size:.78rem;font-weight:600;color:var(--cream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.h-meta{font-family:var(--ff-mono);font-size:.44rem;color:var(--dim);margin-top:2px;}
+.h-score{
+  font-family:var(--ff-mono);font-size:.6rem;font-weight:500;
+  flex-shrink:0;
+}
+.h-score.good{color:var(--signal-good);}
+.h-score.ok{color:var(--signal-ok);}
+.h-score.bad{color:var(--signal-bad);}
+.no-history{
+  font-family:var(--ff-mono);font-size:.52rem;color:var(--muted);
+  text-align:center;padding:32px 0;line-height:2;
+}
+
+/* ── Right panel ────────────────────────────────────────────── */
+.right-panel{
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
+
+/* ── Route heatmap ──────────────────────────────────────────── */
+.heatmap-section{
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.heatmap-header{
+  padding:18px 28px 14px;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.heatmap-title{font-size:.95rem;font-weight:700;color:var(--cream);}
+.heatmap-sub{font-family:var(--ff-mono);font-size:.46rem;color:var(--dim);margin-top:3px;}
+.heatmap-legend{
+  display:flex;align-items:center;gap:6px;
+  font-family:var(--ff-mono);font-size:.44rem;color:var(--dim);
+}
+.legend-grad{
+  width:60px;height:6px;border-radius:3px;
+  background:linear-gradient(90deg,var(--signal-good),var(--signal-ok),var(--signal-bad));
+}
+.heatmap-canvas-wrap{
+  padding:0 28px 20px;
+  overflow-x:auto;
+}
+#heatmapCanvas{
+  display:block;height:72px;border-radius:var(--r6);
+  background:var(--ink2);
+  min-width:100%;
+}
+
+/* ── Prediction strip ───────────────────────────────────────── */
+.pred-strip{
+  padding:16px 28px;
+  border-bottom:1px solid var(--border);
+  display:flex;gap:12px;overflow-x:auto;
+}
+.pred-strip::-webkit-scrollbar{display:none;}
+.pred-card{
+  flex-shrink:0;
+  background:var(--ink2);border:1px solid var(--border);
+  border-radius:var(--r10);padding:14px 16px;
+  min-width:140px;transition:border-color .3s;
+}
+.pred-card.bad-pred{border-color:rgba(255,77,109,.3);background:rgba(255,77,109,.04);}
+.pred-card.ok-pred{border-color:rgba(245,166,35,.25);background:rgba(245,166,35,.03);}
+.pred-card.good-pred{border-color:rgba(0,229,160,.2);}
+.pred-dist{
+  font-family:var(--ff-mono);font-size:.44rem;letter-spacing:2px;
+  color:var(--dim);margin-bottom:6px;
+}
+.pred-quality{
+  font-family:var(--ff-display);font-size:.88rem;font-weight:700;
+  margin-bottom:4px;
+}
+.pred-card.bad-pred  .pred-quality{color:var(--signal-bad);}
+.pred-card.ok-pred   .pred-quality{color:var(--signal-ok);}
+.pred-card.good-pred .pred-quality{color:var(--signal-good);}
+.pred-detail{font-family:var(--ff-mono);font-size:.46rem;color:var(--dim);line-height:1.6;}
+
+/* ── Live chart ─────────────────────────────────────────────── */
+.chart-section{
+  flex:1;padding:18px 28px 24px;
+  display:flex;flex-direction:column;
+  min-height:0;
+}
+.chart-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin-bottom:14px;
+}
+.chart-title{font-size:.88rem;font-weight:600;color:var(--cream);}
+.chart-tabs{display:flex;gap:4px;}
+.ctab{
+  font-family:var(--ff-mono);font-size:.46rem;letter-spacing:1.5px;
+  padding:5px 12px;border-radius:6px;border:1px solid transparent;
+  background:transparent;color:var(--dim);cursor:pointer;transition:all .15s;
+}
+.ctab.active{
+  background:var(--ink3);border-color:var(--border2);color:var(--cream);
+}
+.chart-wrap{flex:1;position:relative;min-height:160px;}
+#liveChart{display:block;width:100%;height:100%;min-height:160px;}
+
+/* ── Empty state / permission prompts ──────────────────────── */
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:60px 28px;text-align:center;flex:1;
+}
+.empty-icon{font-size:2.5rem;margin-bottom:16px;opacity:.4;}
+.empty-title{
+  font-family:var(--ff-display);font-size:1.1rem;font-weight:700;
+  color:var(--cream);margin-bottom:8px;
+}
+.empty-desc{
+  font-family:var(--ff-mono);font-size:.52rem;color:var(--dim);
+  line-height:1.8;max-width:280px;margin-bottom:24px;
+}
+.start-btn{
+  font-family:var(--ff-display);font-size:.75rem;font-weight:700;
+  letter-spacing:.5px;
+  padding:13px 28px;border-radius:var(--r10);
+  background:var(--accent);color:#000;border:none;cursor:pointer;
+  transition:transform .15s,box-shadow .15s;
+  box-shadow:0 0 24px rgba(0,229,160,.25);
+}
+.start-btn:hover{transform:translateY(-2px);box-shadow:0 8px 32px rgba(0,229,160,.35);}
+.start-btn:active{transform:translateY(0);}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media(max-width:768px){
+  .main{grid-template-columns:1fr;grid-template-rows:auto;}
+  .sidebar{border-right:none;border-bottom:1px solid var(--border);}
+}
+
+/* ── Micro-animations ───────────────────────────────────────── */
+@keyframes fadeUp{
+  from{opacity:0;transform:translateY(8px);}
+  to{opacity:1;transform:translateY(0);}
+}
+.fade-up{animation:fadeUp .4s ease both;}
+.fade-up-2{animation:fadeUp .4s .08s ease both;}
+.fade-up-3{animation:fadeUp .4s .16s ease both;}
+
+/* Pulse ring for bad signal */
+@keyframes pulseRing{
+  0%{box-shadow:0 0 0 0 rgba(255,77,109,.4);}
+  70%{box-shadow:0 0 0 12px rgba(255,77,109,0);}
+  100%{box-shadow:0 0 0 0 rgba(255,77,109,0);}
+}
+.pulse-bad{animation:pulseRing 1.5s ease-out infinite;}
+
+/* ── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar{width:4px;height:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- Top bar -->
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">CC</div>
+    <div>
+      <div class="brand-name">CommuteCast</div>
+      <div class="brand-sub">SIGNAL INTELLIGENCE</div>
+    </div>
+  </div>
+  <div class="topbar-right">
+    <div class="loc-pill" id="locPill" onclick="requestLocation()">
+      <div class="loc-dot"></div>
+      <span id="locTxt">ENABLE GPS</span>
+    </div>
+    <button class="notif-btn" id="notifBtn" onclick="requestNotifications()" title="Enable alerts">🔔</button>
+  </div>
+</header>
+
+<!-- Main -->
+<div class="main" id="mainGrid">
+
+  <!-- Left sidebar -->
+  <aside class="sidebar">
+
+    <!-- Live gauge -->
+    <div class="gauge-section fade-up">
+      <div class="gauge-label">LIVE SIGNAL</div>
+      <div class="gauge-wrap">
+        <div class="gauge-ring-wrap">
+          <svg class="gauge-ring" viewBox="0 0 90 90">
+            <circle class="gauge-track" cx="45" cy="45" r="35"/>
+            <circle class="gauge-fill" id="gaugeArc" cx="45" cy="45" r="35"/>
+          </svg>
+          <div class="gauge-center">
+            <div class="gauge-val" id="gaugeVal">—</div>
+            <div class="gauge-unit">MS JITTER</div>
+          </div>
+        </div>
+        <div class="gauge-stats">
+          <div class="g-stat">
+            <div class="g-stat-label">PING (RTT)</div>
+            <div class="g-stat-val" id="statRtt">— ms</div>
+          </div>
+          <div class="g-stat">
+            <div class="g-stat-label">PACKET LOSS</div>
+            <div class="g-stat-val" id="statLoss">— %</div>
+            <div class="g-bar"><div class="g-bar-fill" id="lossBar"></div></div>
+          </div>
+        </div>
+      </div>
+      <div class="sig-badge unknown" id="sigBadge">
+        <span>●</span><span id="sigBadgeTxt">WAITING</span>
+      </div>
+    </div>
+
+    <!-- Alerts -->
+    <div class="alert-section fade-up-2">
+      <div class="alert-section-label">UPCOMING ALERTS</div>
+      <div id="alertList">
+        <div class="no-alerts">No alerts — keep moving</div>
+      </div>
+    </div>
+
+    <!-- Session stats -->
+    <div class="stats-section fade-up-3">
+      <div class="stat-box">
+        <div class="stat-box-val" id="statSegments">0</div>
+        <div class="stat-box-label">SEGMENTS MAPPED</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-val" id="statSessions">0</div>
+        <div class="stat-box-label">COMMUTES LOGGED</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-val" id="statBadZones">0</div>
+        <div class="stat-box-label">BAD ZONES KNOWN</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-box-val" id="statAccuracy">—</div>
+        <div class="stat-box-label">PREDICTION ACC.</div>
+      </div>
+    </div>
+
+    <!-- History -->
+    <div class="history-section">
+      <div class="history-label">
+        RECENT COMMUTES
+        <button class="clear-btn" onclick="clearHistory()">clear all</button>
+      </div>
+      <div id="historyList">
+        <div class="no-history">
+          Start a commute session<br>to build your signal history.
+        </div>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- Right panel -->
+  <div class="right-panel" id="rightPanel">
+
+    <!-- Empty / start state shown until GPS active -->
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">📡</div>
+      <div class="empty-title">Ready to learn your route</div>
+      <div class="empty-desc">
+        CommuteCast watches your signal as you travel, learns where it drops,
+        and warns you before it happens next time.
+      </div>
+      <button class="start-btn" onclick="requestLocation()">
+        Start tracking my commute
+      </button>
+    </div>
+
+    <!-- Live content (hidden until GPS active) -->
+    <div id="liveContent" style="display:none;flex-direction:column;flex:1;">
+
+      <!-- Heatmap -->
+      <div class="heatmap-section">
+        <div class="heatmap-header">
+          <div>
+            <div class="heatmap-title">Route signal heatmap</div>
+            <div class="heatmap-sub">Each cell = one GPS segment · colour = historical signal quality</div>
+          </div>
+          <div class="heatmap-legend">
+            <span>good</span>
+            <div class="legend-grad"></div>
+            <span>bad</span>
+          </div>
+        </div>
+        <div class="heatmap-canvas-wrap">
+          <canvas id="heatmapCanvas" height="72"></canvas>
+        </div>
+      </div>
+
+      <!-- Prediction strip -->
+      <div class="pred-strip" id="predStrip">
+        <div class="pred-card good-pred">
+          <div class="pred-dist">NOW</div>
+          <div class="pred-quality">Good</div>
+          <div class="pred-detail">Measuring…</div>
+        </div>
+      </div>
+
+      <!-- Live chart -->
+      <div class="chart-section">
+        <div class="chart-header">
+          <div class="chart-title">Live signal over time</div>
+          <div class="chart-tabs">
+            <button class="ctab active" onclick="setTab('jitter',this)">JITTER</button>
+            <button class="ctab" onclick="setTab('rtt',this)">RTT</button>
+            <button class="ctab" onclick="setTab('loss',this)">LOSS</button>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="liveChart"></canvas>
+        </div>
+      </div>
+
+    </div><!-- #liveContent -->
+
+  </div><!-- .right-panel -->
+
+</div><!-- .main -->
+</div><!-- .shell -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  CommuteCast v2 — Geolocation Signal Intelligence
+//  All persistent data stored in IndexedDB.
+//  Signal measured via browser RTT probe.
+//  GPS segments bucketed into ~100m grid squares.
+// ═══════════════════════════════════════════════════════════════
+
+// ── Constants ─────────────────────────────────────────────────
+const DB_NAME    = 'commutecast_v2';
+const DB_VERSION = 1;
+const STORE_SEGS = 'segments';   // per-GPS-cell signal history
+const STORE_SESS = 'sessions';   // commute session summaries
+
+const CELL_DEG   = 0.001;        // ~111m per 0.001° lat/lng
+const PROBE_URL  = 'https://www.google.com/generate_204';
+const PROBE_INT  = 1500;         // ms between probes
+const CHART_HIST = 90;           // points in live chart
+const PRED_AHEAD = 5;            // segments to look ahead for predictions
+
+// Alert thresholds
+const JITTER_WARN   = 60;
+const JITTER_BAD    = 130;
+const LOSS_WARN     = 0.05;
+const LOSS_BAD      = 0.15;
+
+// ── State ─────────────────────────────────────────────────────
+let db           = null;
+let probeTimer   = null;
+let watchId      = null;
+let tracking     = false;
+let notifGranted = false;
+
+let currentPos   = null;   // {lat, lng, accuracy, speed, heading}
+let currentCell  = null;   // 'lat:lng' string key
+
+// Live probe metrics
+let probeRtt     = 0;
+let probeJitter  = 0;
+let probeLoss    = 0;
+let probeSent    = 0;
+let probeLost    = 0;
+let probeClass   = 'unknown'; // 'good' | 'ok' | 'bad' | 'unknown'
+
+// History arrays for chart
+let histJitter   = [];
+let histRtt      = [];
+let histLoss     = [];
+let activeTab    = 'jitter';
+
+// In-memory segment cache: cellKey → {jitter, rtt, loss, count, lastSeen}
+let segCache     = {};
+
+// Session data
+let sessionStart = null;
+let sessionReadings = 0;
+let sessionBad   = 0;
+
+// Chart RAF
+let rafPending   = false;
+
+const el = id => document.getElementById(id);
+
+// ── IndexedDB ─────────────────────────────────────────────────
+function openDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = e => {
+      const d = e.target.result;
+      if (!d.objectStoreNames.contains(STORE_SEGS)) {
+        const s = d.createObjectStore(STORE_SEGS, {keyPath:'cell'});
+        s.createIndex('badness','badness');
+      }
+      if (!d.objectStoreNames.contains(STORE_SESS)) {
+        d.createObjectStore(STORE_SESS, {keyPath:'id', autoIncrement:true});
+      }
+    };
+    req.onsuccess = e => resolve(e.target.result);
+    req.onerror   = e => reject(e.target.error);
+  });
+}
+
+async function dbGet(store, key) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function dbPut(store, val) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).put(val);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function dbGetAll(store) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+async function dbClear(store) {
+  return new Promise((resolve, reject) => {
+    const tx  = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).clear();
+    req.onsuccess = () => resolve();
+    req.onerror   = () => reject(req.error);
+  });
+}
+
+// ── GPS helpers ───────────────────────────────────────────────
+function cellKey(lat, lng) {
+  const clat = Math.round(lat / CELL_DEG) * CELL_DEG;
+  const clng = Math.round(lng / CELL_DEG) * CELL_DEG;
+  return `${clat.toFixed(4)}:${clng.toFixed(4)}`;
+}
+
+function classifySignal(jitter, loss) {
+  if (jitter > JITTER_BAD  || loss > LOSS_BAD)  return 'bad';
+  if (jitter > JITTER_WARN || loss > LOSS_WARN)  return 'ok';
+  return 'good';
+}
+
+function badnessScore(jitter, loss) {
+  // 0 = perfect, 1 = terrible
+  return Math.min(1, (jitter / 300) * 0.6 + (loss / 0.3) * 0.4);
+}
+
+// ── Location ──────────────────────────────────────────────────
+function requestLocation() {
+  if (!navigator.geolocation) {
+    updateLocPill('denied', 'NOT SUPPORTED');
+    return;
+  }
+  updateLocPill('pending', 'REQUESTING…');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      onPosition(pos);
+      startTracking();
+    },
+    err => {
+      updateLocPill('denied', 'DENIED');
+      console.warn('GPS denied:', err.message);
+    },
+    {enableHighAccuracy: true, timeout: 10000}
+  );
+}
+
+function startTracking() {
+  if (tracking) return;
+  tracking     = true;
+  sessionStart = Date.now();
+  sessionReadings = 0;
+  sessionBad   = 0;
+
+  watchId = navigator.geolocation.watchPosition(
+    onPosition,
+    err => console.warn('GPS error:', err.message),
+    {enableHighAccuracy: true, maximumAge: 5000, timeout: 15000}
+  );
+
+  startProbe();
+  showLiveContent();
+  updateLocPill('active', 'TRACKING');
+}
+
+function onPosition(pos) {
+  currentPos = {
+    lat:      pos.coords.latitude,
+    lng:      pos.coords.longitude,
+    accuracy: pos.coords.accuracy,
+    speed:    pos.coords.speed || 0,
+    heading:  pos.coords.heading || 0,
+  };
+  const newCell = cellKey(currentPos.lat, currentPos.lng);
+  if (newCell !== currentCell) {
+    currentCell = newCell;
+    onCellChange(newCell);
+  }
+}
+
+async function onCellChange(cell) {
+  // Load this cell's history into cache
+  const existing = await dbGet(STORE_SEGS, cell);
+  if (existing && !segCache[cell]) {
+    segCache[cell] = existing;
+  }
+  // Look ahead and update predictions
+  updatePredictions();
+}
+
+// ── Signal probe ──────────────────────────────────────────────
+function startProbe() {
+  if (probeTimer) return;
+  probeTimer = setInterval(doProbe, PROBE_INT);
+  doProbe(); // immediate first probe
+}
+
+async function doProbe() {
+  const t0 = performance.now();
+  probeSent++;
+  try {
+    await fetch(PROBE_URL + '?t=' + Date.now(), {mode:'no-cors', cache:'no-store'});
+    const ms = performance.now() - t0;
+    if (probeSent === 1) {
+      probeRtt    = ms;
+      probeJitter = 0;
+    } else {
+      const prevRtt = probeRtt;
+      probeRtt    = 0.85 * probeRtt    + 0.15 * ms;
+      probeJitter = 0.85 * probeJitter + 0.15 * Math.abs(ms - prevRtt);
+    }
+  } catch(e) {
+    probeLost++;
+    probeJitter = Math.min(400, probeJitter * 1.3 + 40);
+  }
+  probeLoss    = probeSent > 0 ? probeLost / probeSent : 0;
+  probeClass   = classifySignal(probeJitter, probeLoss);
+
+  // Push to chart histories
+  const push = (arr, v) => { arr.push(v); if (arr.length > CHART_HIST) arr.shift(); };
+  push(histJitter, probeJitter);
+  push(histRtt,    probeRtt);
+  push(histLoss,   probeLoss * 100); // as %
+
+  // Record to current GPS segment
+  if (currentCell && tracking) {
+    await recordToSegment(currentCell, probeJitter, probeRtt, probeLoss);
+    sessionReadings++;
+    if (probeClass === 'bad') sessionBad++;
+  }
+
+  updateGauge();
+  scheduleRender();
+  checkAndAlert();
+}
+
+// ── Segment recording ─────────────────────────────────────────
+async function recordToSegment(cell, jitter, rtt, loss) {
+  let seg = segCache[cell] || await dbGet(STORE_SEGS, cell);
+  if (!seg) {
+    seg = {
+      cell,
+      count:       0,
+      avgJitter:   0,
+      avgRtt:      0,
+      avgLoss:     0,
+      badness:     0,
+      lastSeen:    0,
+      firstSeen:   Date.now(),
+    };
+  }
+  // Exponential moving average — older commutes fade out slowly
+  const alpha = seg.count < 5 ? 0.4 : 0.15;
+  seg.avgJitter = seg.avgJitter * (1-alpha) + jitter * alpha;
+  seg.avgRtt    = seg.avgRtt    * (1-alpha) + rtt    * alpha;
+  seg.avgLoss   = seg.avgLoss   * (1-alpha) + loss   * alpha;
+  seg.badness   = badnessScore(seg.avgJitter, seg.avgLoss);
+  seg.count++;
+  seg.lastSeen  = Date.now();
+
+  segCache[cell] = seg;
+  await dbPut(STORE_SEGS, seg);
+
+  updateStats();
+  drawHeatmap();
+}
+
+// ── Predictions ───────────────────────────────────────────────
+async function updatePredictions() {
+  if (!currentPos) return;
+
+  // Build a list of nearby segments based on heading / recent path
+  // Simple approach: look at cells in the direction of travel
+  const heading = currentPos.heading || 0;
+  const speed   = currentPos.speed   || 5; // assume 5 m/s if unknown
+
+  // Generate lookahead cells in direction of travel
+  const lookahead = [];
+  const headRad   = (heading * Math.PI) / 180;
+  const metersPerDeg = 111320;
+
+  for (let i = 1; i <= PRED_AHEAD; i++) {
+    const distM = i * 120; // ~120m per step
+    const dLat  = (distM * Math.cos(headRad)) / metersPerDeg;
+    const dLng  = (distM * Math.sin(headRad)) / (metersPerDeg * Math.cos(currentPos.lat * Math.PI / 180));
+    const cell  = cellKey(currentPos.lat + dLat, currentPos.lng + dLng);
+    const etaSec= (distM / Math.max(speed, 2));
+    const seg   = segCache[cell] || await dbGet(STORE_SEGS, cell);
+    lookahead.push({
+      cell, seg,
+      distM: Math.round(distM),
+      etaSec: Math.round(etaSec),
+    });
+  }
+
+  renderPredictions(lookahead);
+}
+
+function renderPredictions(lookahead) {
+  const strip = el('predStrip');
+  if (!strip) return;
+
+  // Current cell card
+  const curSeg = currentCell ? segCache[currentCell] : null;
+  const curClass = curSeg ? classifySignal(curSeg.avgJitter, curSeg.avgLoss) : probeClass;
+
+  let html = `<div class="pred-card ${curClass}-pred">
+    <div class="pred-dist">NOW</div>
+    <div class="pred-quality">${capitalise(curClass)}</div>
+    <div class="pred-detail">${curSeg ? `${curSeg.count} readings` : 'First visit'}</div>
+  </div>`;
+
+  lookahead.forEach(({seg, distM, etaSec}) => {
+    if (!seg || seg.count < 2) {
+      html += `<div class="pred-card good-pred">
+        <div class="pred-dist">${distM}M AHEAD</div>
+        <div class="pred-quality" style="color:var(--dim)">Unknown</div>
+        <div class="pred-detail">No data yet</div>
+      </div>`;
+      return;
+    }
+    const cls = classifySignal(seg.avgJitter, seg.avgLoss);
+    const eta = etaSec < 60
+      ? `in ~${etaSec}s`
+      : `in ~${Math.round(etaSec/60)}min`;
+    html += `<div class="pred-card ${cls}-pred">
+      <div class="pred-dist">${distM}M · ${eta.toUpperCase()}</div>
+      <div class="pred-quality">${capitalise(cls)}</div>
+      <div class="pred-detail">${seg.avgJitter.toFixed(0)}ms jitter · ${(seg.avgLoss*100).toFixed(1)}% loss</div>
+    </div>`;
+  });
+
+  strip.innerHTML = html;
+}
+
+// ── Alerts ────────────────────────────────────────────────────
+let lastAlertCell  = null;
+let lastAlertTime  = 0;
+const ALERT_COOLDOWN = 45000; // 45s between same-cell alerts
+
+function checkAndAlert() {
+  if (!currentCell || !tracking) return;
+
+  // Look 2 cells ahead for danger
+  if (!currentPos) return;
+  const heading = currentPos.heading || 0;
+  const headRad = (heading * Math.PI) / 180;
+  const metersPerDeg = 111320;
+
+  for (let i = 1; i <= 3; i++) {
+    const distM = i * 120;
+    const dLat  = (distM * Math.cos(headRad)) / metersPerDeg;
+    const dLng  = (distM * Math.sin(headRad)) / (metersPerDeg * Math.cos(currentPos.lat * Math.PI / 180));
+    const cell  = cellKey(currentPos.lat + dLat, currentPos.lng + dLng);
+    const seg   = segCache[cell];
+    if (!seg || seg.count < 3) continue;
+
+    const cls = classifySignal(seg.avgJitter, seg.avgLoss);
+    if (cls === 'bad') {
+      const now = Date.now();
+      if (cell !== lastAlertCell || now - lastAlertTime > ALERT_COOLDOWN) {
+        lastAlertCell = cell;
+        lastAlertTime = now;
+        const etaSec  = Math.round((distM / Math.max(currentPos.speed || 5, 2)));
+        triggerAlert('danger',
+          `⚠️ Weak signal ahead`,
+          `${distM}m ahead · in ~${etaSec}s · avg ${seg.avgJitter.toFixed(0)}ms jitter · seen ${seg.count}× before`,
+          `Send important messages now`
+        );
+      }
+      break;
+    } else if (cls === 'ok' && i === 1) {
+      const now = Date.now();
+      if (cell !== lastAlertCell || now - lastAlertTime > ALERT_COOLDOWN) {
+        lastAlertCell = cell;
+        lastAlertTime = now;
+        triggerAlert('warn',
+          `🟡 Patchy signal ahead`,
+          `${distM}m ahead · avg ${seg.avgJitter.toFixed(0)}ms jitter`,
+          `Calls may become choppy`
+        );
+      }
+    }
+  }
+}
+
+const alerts = [];
+function triggerAlert(type, title, desc, action) {
+  alerts.unshift({type, title, desc, action, time: Date.now()});
+  if (alerts.length > 5) alerts.pop();
+  renderAlerts();
+
+  // Browser notification
+  if (notifGranted && 'Notification' in window && Notification.permission === 'granted') {
+    new Notification('CommuteCast — ' + title, {
+      body: desc + '\n' + action,
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="%2300e5a0"/><text x="16" y="22" font-size="16" text-anchor="middle" fill="%23000" font-weight="bold">CC</text></svg>',
+      tag:  'commutecast-alert',
+    });
+  }
+}
+
+function renderAlerts() {
+  const list = el('alertList');
+  if (!alerts.length) {
+    list.innerHTML = '<div class="no-alerts">No alerts — keep moving</div>';
+    return;
+  }
+  list.innerHTML = alerts.map(a => `
+    <div class="alert-card ${a.type}">
+      <div class="alert-icon">${a.type === 'danger' ? '⚠️' : a.type === 'warn' ? '🟡' : 'ℹ️'}</div>
+      <div class="alert-body">
+        <div class="alert-title">${a.title}</div>
+        <div class="alert-desc">${a.desc}</div>
+        <div class="alert-time">${a.action} · ${timeAgo(a.time)}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+// ── Gauge update ──────────────────────────────────────────────
+function updateGauge() {
+  // Jitter ring: 0–200ms mapped to full circle (220 circumference)
+  const pct    = Math.min(1, probeJitter / 200);
+  const offset = 220 - pct * 220;
+  const arc    = el('gaugeArc');
+  if (arc) {
+    arc.style.strokeDashoffset = offset;
+    arc.style.stroke =
+      probeClass === 'good'   ? 'var(--signal-good)' :
+      probeClass === 'ok'     ? 'var(--signal-ok)'   :
+      probeClass === 'bad'    ? 'var(--signal-bad)'   : 'var(--dim)';
+  }
+
+  const gv = el('gaugeVal');
+  if (gv) gv.textContent = probeJitter > 0 ? Math.round(probeJitter) : '—';
+
+  el('statRtt').textContent  = probeRtt    > 0 ? Math.round(probeRtt)  + ' ms' : '— ms';
+  el('statLoss').textContent = probeSent   > 0 ? (probeLoss * 100).toFixed(1) + ' %' : '— %';
+
+  const lossBar = el('lossBar');
+  if (lossBar) lossBar.style.width = (Math.min(1, probeLoss / 0.3) * 100) + '%';
+
+  // Badge
+  const badge = el('sigBadge');
+  const bdgTxt= el('sigBadgeTxt');
+  if (badge && bdgTxt) {
+    badge.className = 'sig-badge ' + probeClass;
+    bdgTxt.textContent =
+      probeClass === 'good'   ? 'STRONG SIGNAL'  :
+      probeClass === 'ok'     ? 'PATCHY SIGNAL'  :
+      probeClass === 'bad'    ? 'WEAK SIGNAL'     : 'MEASURING';
+  }
+
+  // Pulse ring on bad
+  const gaugeWrap = el('gaugeArc')?.closest('.gauge-ring-wrap');
+  if (gaugeWrap) {
+    gaugeWrap.classList.toggle('pulse-bad', probeClass === 'bad');
+  }
+}
+
+// ── Stats ─────────────────────────────────────────────────────
+async function updateStats() {
+  const all = await dbGetAll(STORE_SEGS);
+  const badZones = all.filter(s => s.count >= 3 && classifySignal(s.avgJitter, s.avgLoss) === 'bad').length;
+
+  el('statSegments').textContent = all.length;
+  el('statBadZones').textContent = badZones;
+
+  const sessions = await dbGetAll(STORE_SESS);
+  el('statSessions').textContent = sessions.length;
+
+  // Prediction accuracy: % of bad-predicted segments that were actually bad
+  const predicted = all.filter(s => s.count >= 5);
+  const correct   = predicted.filter(s => {
+    const cls = classifySignal(s.avgJitter, s.avgLoss);
+    return (cls === 'bad' && s.badness > 0.5) || (cls !== 'bad' && s.badness <= 0.5);
+  });
+  el('statAccuracy').textContent = predicted.length > 0
+    ? Math.round(correct.length / predicted.length * 100) + '%'
+    : '—';
+}
+
+// ── Heatmap ───────────────────────────────────────────────────
+function drawHeatmap() {
+  const canvas = el('heatmapCanvas');
+  if (!canvas) return;
+
+  const segs = Object.values(segCache).filter(s => s.count > 0);
+  if (!segs.length) {
+    const W = canvas.parentElement.clientWidth || 600;
+    canvas.width = W;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = 'var(--ink2)';
+    ctx.fillRect(0, 0, W, 72);
+    ctx.fillStyle = '#2d3748';
+    ctx.font = '11px JetBrains Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Mapping your route…', W/2, 40);
+    return;
+  }
+
+  // Sort segments by first seen to get a rough route order
+  segs.sort((a, b) => a.firstSeen - b.firstSeen);
+
+  const CELL_W = 28, CELL_H = 72, GAP = 2;
+  const W = segs.length * (CELL_W + GAP);
+  canvas.width  = Math.max(W, canvas.parentElement.clientWidth || 600);
+  canvas.height = CELL_H;
+
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, CELL_H);
+
+  // Background
+  ctx.fillStyle = '#111418';
+  ctx.fillRect(0, 0, canvas.width, CELL_H);
+
+  segs.forEach((seg, i) => {
+    const x   = i * (CELL_W + GAP);
+    const b   = seg.badness; // 0–1
+    const r   = Math.round(b > 0.5 ? 255 : b * 2 * 255);
+    const g   = Math.round(b < 0.5 ? 229 : (1 - (b - 0.5) * 2) * 229);
+    const col = `rgb(${r},${g},${b > 0.3 ? Math.round(b * 30) : 160})`;
+
+    // Cell with glow
+    if (seg.count >= 3) {
+      ctx.shadowColor = col;
+      ctx.shadowBlur  = 6;
+    }
+    ctx.fillStyle = col;
+    ctx.globalAlpha = Math.min(1, 0.3 + seg.count * 0.07);
+    ctx.beginPath();
+    ctx.roundRect(x, 4, CELL_W, CELL_H - 8, 4);
+    ctx.fill();
+    ctx.shadowBlur  = 0;
+    ctx.globalAlpha = 1;
+
+    // Current cell marker
+    if (seg.cell === currentCell) {
+      ctx.fillStyle = '#fff';
+      ctx.globalAlpha = .9;
+      ctx.beginPath();
+      ctx.arc(x + CELL_W/2, CELL_H/2, 4, 0, Math.PI*2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+  });
+}
+
+// ── History ───────────────────────────────────────────────────
+async function loadHistory() {
+  const sessions = await dbGetAll(STORE_SESS);
+  const list = el('historyList');
+  if (!sessions.length) {
+    list.innerHTML = '<div class="no-history">Start a commute session<br>to build your signal history.</div>';
+    return;
+  }
+  sessions.sort((a, b) => b.startTime - a.startTime);
+  list.innerHTML = sessions.slice(0, 12).map(s => {
+    const cls = s.badPct > 0.3 ? 'bad' : s.badPct > 0.1 ? 'ok' : 'good';
+    const dur = Math.round((s.endTime - s.startTime) / 60000);
+    const score = Math.round((1 - s.badPct) * 100);
+    return `<div class="history-item">
+      <div class="h-dot ${cls}"></div>
+      <div class="h-body">
+        <div class="h-title">${formatDate(s.startTime)}</div>
+        <div class="h-meta">${dur} min · ${s.segments} segments · ${s.readings} readings</div>
+      </div>
+      <div class="h-score ${cls}">${score}%</div>
+    </div>`;
+  }).join('');
+}
+
+async function saveSession() {
+  if (!sessionStart || sessionReadings < 3) return;
+  await dbPut(STORE_SESS, {
+    startTime: sessionStart,
+    endTime:   Date.now(),
+    segments:  Object.keys(segCache).length,
+    readings:  sessionReadings,
+    badPct:    sessionReadings > 0 ? sessionBad / sessionReadings : 0,
+  });
+  await loadHistory();
+  await updateStats();
+}
+
+async function clearHistory() {
+  if (!confirm('Clear all commute history and signal data?')) return;
+  await dbClear(STORE_SEGS);
+  await dbClear(STORE_SESS);
+  segCache = {};
+  alerts.length = 0;
+  renderAlerts();
+  await loadHistory();
+  await updateStats();
+  drawHeatmap();
+}
+
+// ── Live chart ─────────────────────────────────────────────────
+function setTab(tab, node) {
+  activeTab = tab;
+  document.querySelectorAll('.ctab').forEach(b => b.classList.remove('active'));
+  node.classList.add('active');
+  scheduleRender();
+}
+
+function scheduleRender() {
+  if (rafPending) return;
+  rafPending = true;
+  requestAnimationFrame(() => {
+    rafPending = false;
+    drawLiveChart();
+    drawHeatmap();
+    if (tracking) updatePredictions();
+  });
+}
+
+function drawLiveChart() {
+  const canvas = el('liveChart');
+  if (!canvas) return;
+
+  const dpr  = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W    = rect.width  || canvas.parentElement.clientWidth  || 600;
+  const H    = rect.height || canvas.parentElement.clientHeight || 160;
+
+  if (canvas.width  !== Math.round(W * dpr) ||
+      canvas.height !== Math.round(H * dpr)) {
+    canvas.width  = Math.round(W * dpr);
+    canvas.height = Math.round(H * dpr);
+    canvas.style.width  = W + 'px';
+    canvas.style.height = H + 'px';
+  }
+
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const data =
+    activeTab === 'jitter' ? histJitter :
+    activeTab === 'rtt'    ? histRtt    : histLoss;
+
+  if (data.length < 2) {
+    ctx.fillStyle = '#2d3748';
+    ctx.font      = `${11 * dpr / dpr}px JetBrains Mono, monospace`;
+    ctx.textAlign = 'center';
+    ctx.fillText('Collecting data…', W/2, H/2);
+    return;
+  }
+
+  const color =
+    activeTab === 'jitter' ? 'rgba(0,229,160,' :
+    activeTab === 'rtt'    ? 'rgba(100,160,255,' :
+                             'rgba(255,77,109,';
+
+  const maxVal = Math.max(...data, activeTab === 'loss' ? 20 : 100);
+  const PAD_T  = 8, PAD_B = 24;
+  const toY    = v => H - PAD_B - (v / maxVal) * (H - PAD_T - PAD_B);
+  const step   = data.length > 1 ? W / (data.length - 1) : W;
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(30,37,45,.9)';
+  ctx.lineWidth   = 1;
+  for (let i = 1; i < 4; i++) {
+    const y = (H / 4) * i;
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // Y labels
+  ctx.fillStyle = 'rgba(74,85,104,.7)';
+  ctx.font      = '9px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  [0, 0.25, 0.5, 0.75, 1].forEach(f => {
+    const val = Math.round(maxVal * f);
+    const y   = toY(val);
+    const suf = activeTab === 'loss' ? '%' : 'ms';
+    ctx.fillText(val + suf, W - 4, y - 3);
+  });
+
+  // Gradient fill
+  const grad = ctx.createLinearGradient(0, PAD_T, 0, H);
+  grad.addColorStop(0, color + '0.25)');
+  grad.addColorStop(1, color + '0.02)');
+
+  ctx.beginPath();
+  ctx.moveTo(0, H);
+  data.forEach((v, i) => ctx.lineTo(i * step, toY(v)));
+  ctx.lineTo((data.length - 1) * step, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.strokeStyle = color + '1)';
+  ctx.lineWidth   = 2;
+  ctx.lineJoin    = 'round';
+  ctx.lineCap     = 'round';
+  data.forEach((v, i) => {
+    const x = i * step, y = toY(v);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  // Latest value dot
+  const lastX = (data.length - 1) * step;
+  const lastY = toY(data[data.length - 1]);
+  ctx.beginPath();
+  ctx.arc(lastX, lastY, 4, 0, Math.PI * 2);
+  ctx.fillStyle = color + '1)';
+  ctx.fill();
+  ctx.strokeStyle = 'var(--ink)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Threshold line (jitter only)
+  if (activeTab === 'jitter') {
+    ctx.strokeStyle = 'rgba(255,77,109,.25)';
+    ctx.lineWidth   = 1;
+    ctx.setLineDash([4, 4]);
+    const ty = toY(JITTER_BAD);
+    ctx.beginPath(); ctx.moveTo(0, ty); ctx.lineTo(W, ty); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,77,109,.5)';
+    ctx.font = '9px JetBrains Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('BAD ZONE', 4, ty - 4);
+  }
+}
+
+// ── Notifications ─────────────────────────────────────────────
+async function requestNotifications() {
+  if (!('Notification' in window)) return;
+  const perm = await Notification.requestPermission();
+  notifGranted = perm === 'granted';
+  el('notifBtn').classList.toggle('on', notifGranted);
+  if (notifGranted) {
+    new Notification('CommuteCast ready', {
+      body: 'You\'ll be alerted before bad signal zones.',
+      tag:  'commutecast-test',
+    });
+  }
+}
+
+// ── UI helpers ────────────────────────────────────────────────
+function updateLocPill(state, text) {
+  const pill = el('locPill');
+  const txt  = el('locTxt');
+  pill.className = 'loc-pill ' + (state === 'active' ? 'active' : state === 'denied' ? 'denied' : '');
+  txt.textContent = text;
+}
+
+function showLiveContent() {
+  el('emptyState').style.display   = 'none';
+  const lc = el('liveContent');
+  lc.style.display = 'flex';
+  drawHeatmap();
+}
+
+function capitalise(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+function timeAgo(ts) {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 10)  return 'just now';
+  if (s < 60)  return s + 's ago';
+  if (s < 3600) return Math.round(s/60) + 'min ago';
+  return Math.round(s/3600) + 'h ago';
+}
+
+function formatDate(ts) {
+  const d = new Date(ts);
+  return d.toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'})
+    + ' · ' + d.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
+}
+
+// ── Page visibility: save session on hide ─────────────────────
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && tracking) saveSession();
+});
+window.addEventListener('beforeunload', () => {
+  if (tracking) saveSession();
+});
+
+// ── Resize ────────────────────────────────────────────────────
+window.addEventListener('resize', () => scheduleRender());
+
+// ── Boot ──────────────────────────────────────────────────────
+(async () => {
+  db = await openDB();
+
+  // Load existing segments into cache
+  const allSegs = await dbGetAll(STORE_SEGS);
+  allSegs.forEach(s => { segCache[s.cell] = s; });
+
+  await updateStats();
+  await loadHistory();
+
+  // Check notification permission
+  if ('Notification' in window && Notification.permission === 'granted') {
+    notifGranted = true;
+    el('notifBtn').classList.add('on');
+  }
+
+  // If permission already granted from a previous visit, auto-start
+  if (navigator.permissions) {
+    const perm = await navigator.permissions.query({name:'geolocation'});
+    if (perm.state === 'granted') {
+      requestLocation();
+    }
+  }
+
+  // Redraw loop (for timeAgo updates in alerts)
+  setInterval(() => {
+    if (alerts.length) renderAlerts();
+    if (tracking) updatePredictions();
+  }, 5000);
+})();
+</script>
+</body>
+</html>
