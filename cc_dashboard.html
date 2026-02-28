@@ -772,6 +772,7 @@ let sessionStart    = null;
 let sessionReadings = 0;
 let sessionBad      = 0;
 let sessionCells    = new Set(); // cells visited in THIS session only
+let sessionId       = null;      // IndexedDB key — set on first save, reused on checkpoint
 
 // Wake lock
 let wakeLock        = null;
@@ -819,7 +820,7 @@ async function dbPut(store, val) {
   return new Promise((resolve, reject) => {
     const tx  = db.transaction(store, 'readwrite');
     const req = tx.objectStore(store).put(val);
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => resolve(req.result); // req.result = the key
     req.onerror   = () => reject(req.error);
   });
 }
@@ -894,6 +895,7 @@ function startTracking() {
   sessionReadings = 0;
   sessionBad      = 0;
   sessionCells    = new Set();
+  sessionId       = null;
   lastMovedAt     = Date.now();
   toastDismissed  = false;
 
@@ -984,7 +986,8 @@ async function doProbe() {
   push(histRtt,    probeRtt);
   push(histLoss,   probeLoss * 100); // as %
 
-  // Record to current GPS segment
+  // Record to current GPS segment — use last known cell even if GPS
+  // stopped updating in background (mobile browser suspends watchPosition)
   if (currentCell && tracking) {
     sessionCells.add(currentCell);
     await recordToSegment(currentCell, probeJitter, probeRtt, probeLoss);
@@ -1360,13 +1363,18 @@ async function loadHistory() {
 
 async function saveSession() {
   if (!sessionStart || sessionReadings < 3) return;
-  await dbPut(STORE_SESS, {
+  const record = {
     startTime: sessionStart,
     endTime:   Date.now(),
-    segments:  sessionCells.size,   // only cells visited THIS session
+    segments:  sessionCells.size,
     readings:  sessionReadings,
     badPct:    sessionReadings > 0 ? sessionBad / sessionReadings : 0,
-  });
+  };
+  // If we already saved this session before (checkpoint), reuse the same id
+  // so we overwrite instead of creating a duplicate entry
+  if (sessionId != null) record.id = sessionId;
+  const savedId = await dbPut(STORE_SESS, record);
+  if (sessionId == null) sessionId = savedId; // store id from first save
   await loadHistory();
   await updateStats();
 }
@@ -1658,6 +1666,7 @@ async function endCommute() {
   sessionReadings = 0;
   sessionBad      = 0;
   sessionCells    = new Set();
+  sessionId       = null;
   currentPos      = null;
   currentCell     = null;
 
