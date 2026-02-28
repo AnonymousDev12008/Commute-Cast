@@ -709,9 +709,16 @@ async function dbClear(store) {
 
 // ── GPS helpers ───────────────────────────────────────────────
 function cellKey(lat, lng) {
-  const clat = Math.round(lat / CELL_DEG) * CELL_DEG;
-  const clng = Math.round(lng / CELL_DEG) * CELL_DEG;
-  return `${clat.toFixed(4)}:${clng.toFixed(4)}`;
+  // Use integer rounding to avoid floating point drift (e.g. 0.30000000000000004)
+  const clat = Math.round(lat / CELL_DEG);
+  const clng = Math.round(lng / CELL_DEG);
+  return `${clat}:${clng}`;
+}
+
+// Convert a cell key back to lat/lng center for geographic sorting
+function cellToLatLng(cell) {
+  const [clat, clng] = cell.split(':').map(Number);
+  return { lat: clat * CELL_DEG, lng: clng * CELL_DEG };
 }
 
 function classifySignal(jitter, loss) {
@@ -781,8 +788,15 @@ function onPosition(pos) {
 async function onCellChange(cell) {
   // Load this cell's history into cache
   const existing = await dbGet(STORE_SEGS, cell);
-  if (existing && !segCache[cell]) {
-    segCache[cell] = existing;
+  if (existing) {
+    // Backfill lat/lng on old segments that were saved without it
+    if (existing.lat == null) {
+      const pos = cellToLatLng(cell);
+      existing.lat = pos.lat;
+      existing.lng = pos.lng;
+      await dbPut(STORE_SEGS, existing);
+    }
+    if (!segCache[cell]) segCache[cell] = existing;
   }
   // Look ahead and update predictions
   updatePredictions();
@@ -838,8 +852,12 @@ async function doProbe() {
 async function recordToSegment(cell, jitter, rtt, loss) {
   let seg = segCache[cell] || await dbGet(STORE_SEGS, cell);
   if (!seg) {
+    // Store the actual lat/lng center of this cell for geographic sorting
+    const pos = cellToLatLng(cell);
     seg = {
       cell,
+      lat:         pos.lat,
+      lng:         pos.lng,
       count:       0,
       avgJitter:   0,
       avgRtt:      0,
@@ -847,8 +865,13 @@ async function recordToSegment(cell, jitter, rtt, loss) {
       badness:     0,
       lastSeen:    0,
       firstSeen:   Date.now(),
+      visitOrder:  [], // track visit timestamps to reconstruct route order
     };
   }
+  // Record visit order for route reconstruction (keep last 20 visits)
+  if (!seg.visitOrder) seg.visitOrder = [];
+  seg.visitOrder.push(Date.now());
+  if (seg.visitOrder.length > 20) seg.visitOrder.shift();
   // Exponential moving average — older commutes fade out slowly
   const alpha = seg.count < 5 ? 0.4 : 0.15;
   seg.avgJitter = seg.avgJitter * (1-alpha) + jitter * alpha;
@@ -1100,8 +1123,17 @@ function drawHeatmap() {
     return;
   }
 
-  // Sort segments by first seen to get a rough route order
-  segs.sort((a, b) => a.firstSeen - b.firstSeen);
+  // Sort segments geographically: by lng (west→east) as primary axis,
+  // lat (south→north) as tiebreaker. This keeps the heatmap spatially
+  // meaningful instead of time-ordered which scrambles on round trips.
+  // For segments missing lat/lng (old data), fall back to firstSeen.
+  segs.sort((a, b) => {
+    const aPos = a.lat != null ? { lat: a.lat, lng: a.lng } : cellToLatLng(a.cell);
+    const bPos = b.lat != null ? { lat: b.lat, lng: b.lng } : cellToLatLng(b.cell);
+    const lngDiff = aPos.lng - bPos.lng;
+    if (Math.abs(lngDiff) > CELL_DEG * 0.5) return lngDiff;
+    return aPos.lat - bPos.lat;
+  });
 
   const CELL_W = 28, CELL_H = 72, GAP = 2;
   const W = segs.length * (CELL_W + GAP);
@@ -1117,10 +1149,16 @@ function drawHeatmap() {
 
   segs.forEach((seg, i) => {
     const x   = i * (CELL_W + GAP);
-    const b   = seg.badness; // 0–1
-    const r   = Math.round(b > 0.5 ? 255 : b * 2 * 255);
-    const g   = Math.round(b < 0.5 ? 229 : (1 - (b - 0.5) * 2) * 229);
-    const col = `rgb(${r},${g},${b > 0.3 ? Math.round(b * 30) : 160})`;
+    const bad = seg.badness; // 0–1
+
+    // Fix: interpolate green → amber → red cleanly, keep blue=0
+    const r = Math.round(bad > 0.5 ? 255 : bad * 2 * 255);
+    const g = Math.round(bad < 0.5 ? 229 : (1 - (bad - 0.5) * 2) * 229);
+    const bl = 0; // was wrongly using `b` (badness) as blue channel
+    const col = `rgb(${r},${g},${bl})`;
+
+    // Opacity: start at 0.6 for count=1, reach full at count=5+
+    const alpha = Math.min(1, 0.6 + seg.count * 0.08);
 
     // Cell with glow
     if (seg.count >= 3) {
@@ -1128,7 +1166,7 @@ function drawHeatmap() {
       ctx.shadowBlur  = 6;
     }
     ctx.fillStyle = col;
-    ctx.globalAlpha = Math.min(1, 0.3 + seg.count * 0.07);
+    ctx.globalAlpha = alpha;
     ctx.beginPath();
     ctx.roundRect(x, 4, CELL_W, CELL_H - 8, 4);
     ctx.fill();
@@ -1388,9 +1426,17 @@ window.addEventListener('resize', () => scheduleRender());
 (async () => {
   db = await openDB();
 
-  // Load existing segments into cache
+  // Load existing segments into cache, backfilling lat/lng for old entries
   const allSegs = await dbGetAll(STORE_SEGS);
-  allSegs.forEach(s => { segCache[s.cell] = s; });
+  for (const s of allSegs) {
+    if (s.lat == null) {
+      const pos = cellToLatLng(s.cell);
+      s.lat = pos.lat;
+      s.lng = pos.lng;
+      await dbPut(STORE_SEGS, s);
+    }
+    segCache[s.cell] = s;
+  }
 
   await updateStats();
   await loadHistory();
