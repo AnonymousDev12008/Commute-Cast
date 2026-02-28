@@ -414,10 +414,98 @@ body::before{
 }
 .pulse-bad{animation:pulseRing 1.5s ease-out infinite;}
 
-/* ── Scrollbar ──────────────────────────────────────────────── */
-::-webkit-scrollbar{width:4px;height:4px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+/* ── Stop button ────────────────────────────────────────────── */
+.stop-btn{
+  font-family:var(--ff-mono);font-size:.5rem;letter-spacing:2px;
+  padding:6px 14px;border-radius:99px;
+  border:1px solid rgba(255,77,109,.4);
+  background:rgba(255,77,109,.08);color:var(--signal-bad);
+  cursor:pointer;transition:all .2s;display:none;
+}
+.stop-btn:hover{background:rgba(255,77,109,.18);border-color:rgba(255,77,109,.7);}
+.stop-btn.visible{display:block;}
+
+/* ── End commute modal ──────────────────────────────────────── */
+.modal-backdrop{
+  position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(6px);
+  z-index:500;display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .25s;
+}
+.modal-backdrop.open{opacity:1;pointer-events:all;}
+.modal{
+  background:var(--ink2);border:1px solid var(--border2);
+  border-radius:var(--r20);padding:32px 28px;width:100%;max-width:360px;
+  margin:20px;transform:translateY(12px);transition:transform .25s;
+}
+.modal-backdrop.open .modal{transform:translateY(0);}
+.modal-icon{font-size:2rem;margin-bottom:12px;text-align:center;}
+.modal-title{
+  font-family:var(--ff-display);font-size:1.1rem;font-weight:700;
+  color:var(--cream);text-align:center;margin-bottom:6px;
+}
+.modal-sub{
+  font-family:var(--ff-mono);font-size:.48rem;letter-spacing:2px;
+  color:var(--dim);text-align:center;margin-bottom:22px;
+}
+.modal-stats{
+  display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:24px;
+}
+.modal-stat{
+  background:var(--ink3);border:1px solid var(--border);
+  border-radius:var(--r10);padding:12px 8px;text-align:center;
+}
+.modal-stat-val{
+  font-family:var(--ff-display);font-size:1.2rem;font-weight:700;
+  color:var(--cream);line-height:1;
+}
+.modal-stat-lbl{font-family:var(--ff-mono);font-size:.42rem;color:var(--dim);margin-top:4px;letter-spacing:1px;}
+.modal-score{
+  text-align:center;margin-bottom:20px;
+  font-family:var(--ff-display);font-size:2.2rem;font-weight:800;
+}
+.modal-score.good{color:var(--signal-good);}
+.modal-score.ok{color:var(--signal-ok);}
+.modal-score.bad{color:var(--signal-bad);}
+.modal-actions{display:flex;gap:10px;}
+.modal-btn{
+  flex:1;padding:12px;border-radius:var(--r10);border:none;
+  font-family:var(--ff-display);font-size:.75rem;font-weight:700;
+  cursor:pointer;transition:all .15s;
+}
+.modal-btn.primary{background:var(--accent);color:#000;}
+.modal-btn.primary:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,229,160,.3);}
+.modal-btn.secondary{background:var(--ink3);color:var(--txt);border:1px solid var(--border2);}
+.modal-btn.secondary:hover{border-color:var(--border2);background:var(--ink2);}
+
+/* ── Stationary nudge toast ─────────────────────────────────── */
+.stationary-toast{
+  position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(80px);
+  background:var(--ink2);border:1px solid var(--border2);
+  border-radius:var(--r14);padding:14px 20px;
+  display:flex;align-items:center;gap:14px;
+  font-family:var(--ff-mono);font-size:.52rem;color:var(--txt);
+  box-shadow:0 8px 32px rgba(0,0,0,.4);z-index:400;
+  transition:transform .35s cubic-bezier(.34,1.56,.64,1);
+  white-space:nowrap;
+}
+.stationary-toast.show{transform:translateX(-50%) translateY(0);}
+.toast-msg{line-height:1.5;}
+.toast-end-btn{
+  font-family:var(--ff-mono);font-size:.5rem;letter-spacing:1px;
+  padding:6px 12px;border-radius:6px;border:none;
+  background:var(--signal-bad);color:#fff;cursor:pointer;flex-shrink:0;
+}
+.toast-dismiss{
+  font-family:var(--ff-mono);font-size:.5rem;color:var(--dim);
+  background:none;border:none;cursor:pointer;padding:4px;
+}
+
+/* ── Wake lock indicator ────────────────────────────────────── */
+.wakelock-dot{
+  width:6px;height:6px;border-radius:50%;background:var(--accent);
+  display:none;flex-shrink:0;
+}
+.wakelock-dot.active{display:inline-block;}
 </style>
 </head>
 <body>
@@ -437,9 +525,46 @@ body::before{
       <div class="loc-dot"></div>
       <span id="locTxt">ENABLE GPS</span>
     </div>
+    <button class="stop-btn" id="stopBtn" onclick="promptEndCommute()">■ END COMMUTE</button>
     <button class="notif-btn" id="notifBtn" onclick="requestNotifications()" title="Enable alerts">🔔</button>
   </div>
 </header>
+
+<!-- End commute modal -->
+<div class="modal-backdrop" id="endModal">
+  <div class="modal">
+    <div class="modal-icon">🏁</div>
+    <div class="modal-title">End this commute?</div>
+    <div class="modal-sub" id="modalSub">SESSION IN PROGRESS</div>
+    <div class="modal-score good" id="modalScore">—</div>
+    <div class="modal-stats">
+      <div class="modal-stat">
+        <div class="modal-stat-val" id="modalDur">—</div>
+        <div class="modal-stat-lbl">DURATION</div>
+      </div>
+      <div class="modal-stat">
+        <div class="modal-stat-val" id="modalSegs">—</div>
+        <div class="modal-stat-lbl">SEGMENTS</div>
+      </div>
+      <div class="modal-stat">
+        <div class="modal-stat-val" id="modalBad">—</div>
+        <div class="modal-stat-lbl">BAD SIGNAL</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-btn secondary" onclick="closeEndModal()">Keep tracking</button>
+      <button class="modal-btn primary"   onclick="confirmEndCommute()">Save & end</button>
+    </div>
+  </div>
+</div>
+
+<!-- Stationary nudge toast -->
+<div class="stationary-toast" id="stationaryToast">
+  <span>📍</span>
+  <div class="toast-msg">You've been stationary.<br>End this commute?</div>
+  <button class="toast-end-btn" onclick="promptEndCommute()">End</button>
+  <button class="toast-dismiss"  onclick="dismissStationaryToast()">✕</button>
+</div>
 
 <!-- Main -->
 <div class="main" id="mainGrid">
@@ -648,6 +773,15 @@ let sessionReadings = 0;
 let sessionBad      = 0;
 let sessionCells    = new Set(); // cells visited in THIS session only
 
+// Wake lock
+let wakeLock        = null;
+
+// Stationary detection
+let stationaryTimer    = null;
+let lastMovedAt        = Date.now();
+let toastDismissed     = false;
+const STATIONARY_MS    = 5 * 60 * 1000; // 5 minutes stopped = nudge
+
 // Chart RAF
 let rafPending   = false;
 
@@ -760,6 +894,15 @@ function startTracking() {
   sessionReadings = 0;
   sessionBad      = 0;
   sessionCells    = new Set();
+  lastMovedAt     = Date.now();
+  toastDismissed  = false;
+
+  acquireWakeLock();
+  el('stopBtn').classList.add('visible');
+
+  // Stationary check every 30s
+  if (stationaryTimer) clearInterval(stationaryTimer);
+  stationaryTimer = setInterval(checkStationary, 30000);
 
   watchId = navigator.geolocation.watchPosition(
     onPosition,
@@ -783,6 +926,9 @@ function onPosition(pos) {
   const newCell = cellKey(currentPos.lat, currentPos.lng);
   if (newCell !== currentCell) {
     currentCell = newCell;
+    lastMovedAt = Date.now();      // reset stationary clock on cell change
+    toastDismissed = false;        // allow toast again after moving
+    hideStationaryToast();
     onCellChange(newCell);
   }
 }
@@ -1414,11 +1560,129 @@ function formatDate(ts) {
     + ' · ' + d.toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit'});
 }
 
+// ── Wake Lock ─────────────────────────────────────────────────
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) return;
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    wakeLock.addEventListener('release', () => {
+      // Re-acquire if page is still visible and tracking
+      if (!document.hidden && tracking) acquireWakeLock();
+    });
+  } catch(e) {
+    console.warn('Wake lock failed:', e.message);
+  }
+}
+
+function releaseWakeLock() {
+  if (wakeLock) { wakeLock.release(); wakeLock = null; }
+}
+
+// Re-acquire wake lock when tab becomes visible again
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && tracking) acquireWakeLock();
+});
+
+// ── Stationary detection ──────────────────────────────────────
+function checkStationary() {
+  if (!tracking || toastDismissed) return;
+  const idle = Date.now() - lastMovedAt;
+  if (idle >= STATIONARY_MS) showStationaryToast();
+}
+
+function showStationaryToast() {
+  el('stationaryToast').classList.add('show');
+}
+
+function hideStationaryToast() {
+  el('stationaryToast').classList.remove('show');
+}
+
+function dismissStationaryToast() {
+  toastDismissed = true;
+  hideStationaryToast();
+}
+
+// ── End commute modal ─────────────────────────────────────────
+function promptEndCommute() {
+  if (!tracking) return;
+  hideStationaryToast();
+
+  // Fill in summary stats
+  const dur     = sessionStart ? Math.round((Date.now() - sessionStart) / 60000) : 0;
+  const badPct  = sessionReadings > 0 ? sessionBad / sessionReadings : 0;
+  const score   = Math.round((1 - badPct) * 100);
+  const cls     = score >= 80 ? 'good' : score >= 50 ? 'ok' : 'bad';
+
+  el('modalDur').textContent   = dur + ' min';
+  el('modalSegs').textContent  = sessionCells.size;
+  el('modalBad').textContent   = Math.round(badPct * 100) + '%';
+  el('modalScore').textContent = score + '%';
+  el('modalScore').className   = 'modal-score ' + cls;
+  el('modalSub').textContent   = sessionCells.size + ' SEGMENTS · ' + sessionReadings + ' READINGS';
+
+  el('endModal').classList.add('open');
+}
+
+function closeEndModal() {
+  el('endModal').classList.remove('open');
+}
+
+async function confirmEndCommute() {
+  closeEndModal();
+  await endCommute();
+}
+
+async function endCommute() {
+  if (!tracking) return;
+  tracking = false;
+
+  // Stop GPS watch
+  if (watchId != null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+
+  // Stop probe
+  if (probeTimer) { clearInterval(probeTimer); probeTimer = null; }
+
+  // Stop stationary checker
+  if (stationaryTimer) { clearInterval(stationaryTimer); stationaryTimer = null; }
+
+  releaseWakeLock();
+
+  el('stopBtn').classList.remove('visible');
+  updateLocPill('', 'ENABLE GPS');
+
+  await saveSession();
+
+  // Reset session state
+  sessionStart    = null;
+  sessionReadings = 0;
+  sessionBad      = 0;
+  sessionCells    = new Set();
+  currentPos      = null;
+  currentCell     = null;
+
+  // Reset live metrics
+  probeRtt = probeJitter = probeLoss = probeSent = probeLost = 0;
+  probeClass = 'unknown';
+  histJitter.length = histRtt.length = histLoss.length = 0;
+
+  updateGauge();
+  scheduleRender();
+
+  // Show empty state again
+  el('emptyState').style.display   = '';
+  el('liveContent').style.display  = 'none';
+}
+
 // ── Page visibility: save session on hide ─────────────────────
 document.addEventListener('visibilitychange', () => {
+  // Re-acquire wake lock handled above.
+  // On hide: just checkpoint-save, don't end the session —
+  // user may be switching apps mid-commute on mobile.
   if (document.hidden && tracking) saveSession();
 });
 window.addEventListener('beforeunload', () => {
+  // Tab/browser actually closing — end for real
   if (tracking) saveSession();
 });
 
